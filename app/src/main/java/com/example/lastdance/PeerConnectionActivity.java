@@ -3,6 +3,7 @@ package com.example.lastdance;
 import android.app.Application;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
@@ -18,6 +19,7 @@ import android.widget.Toast;
 import org.json.JSONException;
 import org.json.JSONObject;
 import org.webrtc.Camera1Enumerator;
+import org.webrtc.Camera2Enumerator;
 import org.webrtc.CameraVideoCapturer;
 import org.webrtc.DataChannel;
 import org.webrtc.EglBase;
@@ -39,7 +41,12 @@ import org.webrtc.SurfaceViewRenderer;
 import org.webrtc.VideoCapturer;
 import org.webrtc.VideoSource;
 import org.webrtc.VideoTrack;
+
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
+
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
@@ -81,14 +88,52 @@ public class PeerConnectionActivity extends AppCompatActivity {
 
     Emitter.Listener onConnect,onMessage;
 
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+
+        if (requestCode == 1) {
+            if (grantResults.length > 0 &&
+                    grantResults[0] == PackageManager.PERMISSION_GRANTED &&
+                    grantResults[1] == PackageManager.PERMISSION_GRANTED) {
+
+                // Permissions granted, continue with initializing video/audio tracks
+                Toast.makeText(this, "Permissions granted", Toast.LENGTH_SHORT).show();
+            } else {
+                // Permissions denied
+                Toast.makeText(this, "Permissions denied. The app may not work correctly.", Toast.LENGTH_LONG).show();
+            }
+        }
+    }
+
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
         setContentView(R.layout.activity_peer_connection);
 
+
+
+        // Check and request camera and microphone permissions
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+
+            // Request the camera and audio permissions
+            ActivityCompat.requestPermissions(this,
+                    new String[]{android.Manifest.permission.CAMERA, android.Manifest.permission.RECORD_AUDIO},
+                    1);
+        }
+
         myApp = (Application) getApplicationContext();
-        connectionFactory = PeerConnectionFactory.builder().createPeerConnectionFactory();// 여기 교체!
+        // 예제 코드
+        PeerConnectionFactory.initialize(
+                PeerConnectionFactory.InitializationOptions.builder(this)
+                        .setEnableInternalTracer(true)
+                        .createInitializationOptions()
+        );
+        connectionFactory = PeerConnectionFactory.builder().createPeerConnectionFactory();
         //connectionFactory = myApp.getPeerConnectionFactory();
 
         시작 = findViewById(R.id.button3);
@@ -300,18 +345,32 @@ public class PeerConnectionActivity extends AppCompatActivity {
 
                 // 비디오 트랙 가져오기
                 localTrack = getLocalVideo(true);
+
+                Log.i("localTrack","⚠️⚠️⚠️⚠ localTrack finish ⚠️⚠️⚠️⚠️:");
+
+
                 localTrack.addSink(localView);
 
-//                signaling.postMessage({type: 'ready'});
+
+                Log.i("addSink","⚠️⚠️⚠️⚠ addSink finish ⚠️⚠️⚠️⚠️:");
+
+                //signaling.postMessage({type: 'ready'});
 
                 JSONObject message = new JSONObject();
+
+
+                Log.i("JSONObject finish","⚠️⚠️⚠️⚠ JSONObject finish ⚠️⚠️⚠️⚠️:");
+
                 try {
                     message.put("type","ready");
                 } catch (JSONException e) {
                     e.printStackTrace();
                 }
-                socket.emit("message",message);
 
+
+
+                socket.emit("message",message);
+                Log.i("Socket emit finish","⚠️⚠️⚠️⚠ Socket emit finish ⚠️⚠️⚠️⚠️:");
             }
         });
 
@@ -333,7 +392,10 @@ public class PeerConnectionActivity extends AppCompatActivity {
             }
         });
 
-        socket = IO.socket(URI.create("http://chat.socket.io")); // 서버 url 여기 기록! 🥸
+        socket = IO.socket(URI.create("https://webrtc.github.io/samples/src/content/peerconnection/channel/")); // 서버 url 여기 기록! 🥸
+
+        Log.i("Socket emit finish","⚠️⚠️⚠️⚠ Socket emit finish ⚠️⚠️⚠️⚠️:");
+
 
         socket.on(Socket.EVENT_CONNECT, onConnect);
 
@@ -405,6 +467,7 @@ public class PeerConnectionActivity extends AppCompatActivity {
     public void createPeerConnection(){
 
         PC = connectionFactory.createPeerConnection(rtcConfig,PCObserver);
+        assert PC != null;
         PC.addTrack(localTrack);
 
     }
@@ -437,6 +500,13 @@ public class PeerConnectionActivity extends AppCompatActivity {
 
         // videoCapturer : 비디오 소스에서 비디오 프레임을 캡처하고 VideoSource 객체에 전달하는 데 사용됩니다.
         videoCapturer = createCameraCapturer(status);
+
+        if (videoCapturer == null) {
+            Log.e("getLocalVideo", "videoCapturer is null");
+            return null; // or handle this case appropriately
+        }
+
+
         // createCameraCapturer {videoCapturer} 출력
         Log.w("createCameraCapturer",videoCapturer.toString());
 
@@ -478,13 +548,16 @@ public class PeerConnectionActivity extends AppCompatActivity {
     private VideoCapturer createCameraCapturer(boolean isFront) {
 
 
+
         // Camera1Enumerator : Android 디바이스의 카메라 목록을 가져오고 선택한 카메라를 열기 위한 클래스
         // 매개변수 : true를 전달하면 전면 카메라만 사용하며, false를 전달하거나 이 매개변수를 생략하면 전면 카메라와 후면 카메라 모두 사용
-        Camera1Enumerator enumerator = new Camera1Enumerator(false);
+        //Camera1Enumerator enumerator = new Camera1Enumerator(false);
+        Camera2Enumerator enumerator = new Camera2Enumerator(getApplicationContext());
 
         // Android 디바이스에서 사용 가능한 카메라 디바이스를 열거할 수 있습니다.
         // 카메라의 ID와 이름을 갖는 CameraEnumerationAndroid.CaptureDeviceInfo 객체의 목록을 반환합니다.
         final String[] deviceNames = enumerator.getDeviceNames();
+
 
         // First, try to find front facing camera
         // deviceNames 요소의수만큼 반복
@@ -561,7 +634,7 @@ public class PeerConnectionActivity extends AppCompatActivity {
                 });
 
                 // 생성성공시 {} 안의 코드 실행.
-                if (videoCapturer != null) {
+                if (videoCapturer != null) { // 이거 문제!
                     // 생성한 videoCapturer 반환
                     return videoCapturer;
                     // 생성성공시 실행할 코드 끝.
@@ -573,6 +646,8 @@ public class PeerConnectionActivity extends AppCompatActivity {
         }
 
         // null 반환
+        Log.e("createCameraCapturer", "No suitable camera found!");
+
         return null;
 
         /// createCameraCapturer 함수 끝.
